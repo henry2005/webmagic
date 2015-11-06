@@ -1,13 +1,15 @@
 package us.codecraft.webmagic.scheduler;
 
 import com.alibaba.fastjson.JSON;
+import com.google.common.collect.Lists;
 import org.apache.commons.codec.digest.DigestUtils;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.JedisPoolConfig;
+import redis.clients.jedis.*;
 import us.codecraft.webmagic.Request;
 import us.codecraft.webmagic.Task;
 import us.codecraft.webmagic.scheduler.component.DuplicateRemover;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Use Redis as url scheduler for distributed crawlers.<br>
@@ -17,7 +19,7 @@ import us.codecraft.webmagic.scheduler.component.DuplicateRemover;
  */
 public class RedisScheduler extends DuplicateRemovedScheduler implements MonitorableScheduler, DuplicateRemover {
 
-    private JedisPool pool;
+    private ShardedJedisPool pool;
 
     private static final String QUEUE_PREFIX = "queue_";
 
@@ -26,27 +28,53 @@ public class RedisScheduler extends DuplicateRemovedScheduler implements Monitor
     private static final String ITEM_PREFIX = "item_";
 
     public RedisScheduler(String host) {
-        this(new JedisPool(new JedisPoolConfig(), host));
+        this(shardedJedisPool(host, 30000));
     }
 
-    public RedisScheduler(JedisPool pool) {
+    public RedisScheduler(String host, int timeout) {
+        this(shardedJedisPool(host, timeout));
+    }
+
+    private static ShardedJedisPool shardedJedisPool(String servers, int timeout) {
+        List<JedisShardInfo> shardInfos = Lists.newArrayList();
+        // 分拆server信息
+        for(String s : servers.split(",")) {
+            String[] infos = s.split(":");
+            JedisShardInfo jedisShardInfo = null;
+            if(infos.length == 1) {
+                jedisShardInfo = new JedisShardInfo(infos[0]);
+            } else if (infos.length == 2) {
+                jedisShardInfo = new JedisShardInfo(infos[0],
+                        Integer.parseInt(infos[1]));
+            } else {
+                jedisShardInfo = new JedisShardInfo(infos[0],
+                        Integer.parseInt(infos[1]), timeout, timeout,
+                        Integer.parseInt(infos[2]));
+            }
+            shardInfos.add(jedisShardInfo);
+        }
+
+        return new ShardedJedisPool(new JedisPoolConfig(), shardInfos);
+    }
+
+    public RedisScheduler(ShardedJedisPool pool) {
         this.pool = pool;
         setDuplicateRemover(this);
     }
 
     @Override
     public void resetDuplicateCheck(Task task) {
-        Jedis jedis = pool.getResource();
+        ShardedJedis jedis = pool.getResource();
         try {
             jedis.del(getSetKey(task));
         } finally {
-            pool.returnResource(jedis);
+            jedis.close();
         }
     }
 
     @Override
     public boolean isDuplicate(Request request, Task task) {
-        Jedis jedis = pool.getResource();
+        ShardedJedis jedis = pool.getResource();
         try {
             boolean isDuplicate = jedis.sismember(getSetKey(task), request.getUrl());
             if (!isDuplicate) {
@@ -54,14 +82,14 @@ public class RedisScheduler extends DuplicateRemovedScheduler implements Monitor
             }
             return isDuplicate;
         } finally {
-            pool.returnResource(jedis);
+            jedis.close();
         }
 
     }
 
     @Override
     protected void pushWhenNoDuplicate(Request request, Task task) {
-        Jedis jedis = pool.getResource();
+        ShardedJedis jedis = pool.getResource();
         try {
             jedis.rpush(getQueueKey(task), request.getUrl());
             if (request.getExtras() != null) {
@@ -70,13 +98,13 @@ public class RedisScheduler extends DuplicateRemovedScheduler implements Monitor
                 jedis.hset((ITEM_PREFIX + task.getUUID()), field, value);
             }
         } finally {
-            pool.returnResource(jedis);
+            jedis.close();
         }
     }
 
     @Override
     public synchronized Request poll(Task task) {
-        Jedis jedis = pool.getResource();
+        ShardedJedis jedis = pool.getResource();
         try {
             String url = jedis.lpop(getQueueKey(task));
             if (url == null) {
@@ -92,7 +120,7 @@ public class RedisScheduler extends DuplicateRemovedScheduler implements Monitor
             Request request = new Request(url);
             return request;
         } finally {
-            pool.returnResource(jedis);
+            jedis.close();
         }
     }
 
@@ -106,23 +134,23 @@ public class RedisScheduler extends DuplicateRemovedScheduler implements Monitor
 
     @Override
     public int getLeftRequestsCount(Task task) {
-        Jedis jedis = pool.getResource();
+        ShardedJedis jedis = pool.getResource();
         try {
             Long size = jedis.llen(getQueueKey(task));
             return size.intValue();
         } finally {
-            pool.returnResource(jedis);
+            jedis.close();
         }
     }
 
     @Override
     public int getTotalRequestsCount(Task task) {
-        Jedis jedis = pool.getResource();
+        ShardedJedis jedis = pool.getResource();
         try {
             Long size = jedis.scard(getQueueKey(task));
             return size.intValue();
         } finally {
-            pool.returnResource(jedis);
+            jedis.close();
         }
     }
 }

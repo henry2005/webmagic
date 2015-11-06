@@ -66,10 +66,10 @@ public class TaobaoListProcessor implements PageProcessor {
     }
 
     public static void main(String[] args) {
-        Spider.create(new TaobaoListProcessor())
+        Spider spider = Spider.create(new TaobaoListProcessor())
                // .setDownloader(new SeleniumDownloader("/Users/quyan/Downloads/chromedriver"))
 //                .addUrl("https://handuyishe.tmall.com/i/asynSearch.htm?_ksTS=1446031464228_122&callback=jsonp123&mid=w-1136113151-0&wid=1136113151&path=/search.htm&&search=y&spm=a1z10.3-b.w4011-1136113151.338.AX8mcY&pageNo=4&tsearch=y")
-                .addUrl("https://shendacheng.tmall.com/i/asynSearch.htm?_ksTS=1446031464228_122&callback=jsonp123&mid=w-1136113151-0&wid=1136113151&path=/search.htm&&search=y&spm=a1z10.3-b.w4011-1136113151.338.AX8mcY&pageNo=1&tsearch=y")
-                .run();
+                .addUrl("https://shendacheng.tmall.com/i/asynSearch.htm?_ksTS=1446031464228_122&callback=jsonp123&mid=w-1136113151-0&wid=1136113151&path=/search.htm&&search=y&spm=a1z10.3-b.w4011-1136113151.338.AX8mcY&pageNo=1&tsearch=y");
+        spider.run();
     }
 }
